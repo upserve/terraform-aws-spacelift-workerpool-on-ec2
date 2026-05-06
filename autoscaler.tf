@@ -35,7 +35,7 @@ resource "aws_lambda_function" "autoscaler" {
   function_name    = local.function_name
   role             = aws_iam_role.autoscaler[count.index].arn
   handler          = "bootstrap"
-  runtime          = "provided.al2"
+  runtime          = "provided.al2023"
 
   environment {
     variables = {
