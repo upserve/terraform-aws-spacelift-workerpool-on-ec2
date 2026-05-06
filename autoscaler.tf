@@ -1,16 +1,20 @@
 locals {
-  function_name = "ec2-autoscaler-${var.worker_pool_id}"
+  function_name = "${local.base_name}-ec2-autoscaler"
 }
 
 resource "aws_ssm_parameter" "spacelift_api_key_secret" {
   count = var.enable_autoscaling ? 1 : 0
-  name  = "/ec2-autoscaler/spacelift-api-secret-${var.worker_pool_id}"
+  name  = "/${local.function_name}/spacelift-api-secret-${var.worker_pool_id}"
   type  = "SecureString"
   value = var.spacelift_api_key_secret
 }
 
-resource "null_resource" "download" {
+resource "terraform_data" "download" {
   count = var.enable_autoscaling ? 1 : 0
+  triggers_replace = {
+    # Always re-download the archive file
+    now = timestamp()
+  }
   provisioner "local-exec" {
     command = "${path.module}/download.sh ${var.autoscaler_version}"
   }
@@ -21,7 +25,7 @@ data "archive_file" "binary" {
   type        = "zip"
   source_file = "lambda/bootstrap"
   output_path = "ec2-workerpool-autoscaler_${var.autoscaler_version}.zip"
-  depends_on  = [null_resource.download]
+  depends_on  = [terraform_data.download]
 }
 
 resource "aws_lambda_function" "autoscaler" {
@@ -31,7 +35,7 @@ resource "aws_lambda_function" "autoscaler" {
   function_name    = local.function_name
   role             = aws_iam_role.autoscaler[count.index].arn
   handler          = "bootstrap"
-  runtime          = "provided.al2"
+  runtime          = "provided.al2023"
 
   environment {
     variables = {
@@ -47,13 +51,11 @@ resource "aws_lambda_function" "autoscaler" {
   tracing_config {
     mode = "Active"
   }
-
-  depends_on = [module.asg, null_resource.download]
 }
 
 resource "aws_cloudwatch_event_rule" "scheduling" {
   count               = var.enable_autoscaling ? 1 : 0
-  name                = "spacelift-${var.worker_pool_id}-scheduling"
+  name                = local.function_name
   description         = "Spacelift autoscaler scheduling for worker pool ${var.worker_pool_id}"
   schedule_expression = var.schedule_expression
 }
